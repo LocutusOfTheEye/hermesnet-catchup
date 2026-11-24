@@ -172,14 +172,22 @@ def main():
         stars = [x for x in stars if f"{x[0]}/{x[1]}".lower() not in seen]
     print(f"Builders: {len(members)} ({len(members) - len(others)} is you). Repos: {len(keep)} listed, {len(stars)} to check")
 
-    todo_star, todo_follow, already, bad, orgs = [], [], 0, [], []
+    todo_star, todo_follow, already, bad, orgs, forks = [], [], 0, [], [], []
     if not a.no_star:
         for o, r in stars:
             st, _, _ = call(tok, "GET", f"/user/starred/{o}/{r}")
             if st == 204: already += 1
             elif st == 404:
                 _, _, info = call(tok, "GET", f"/repos/{o}/{r}")
-                todo_star.append((o, r, ((info or {}).get("description") or "").strip()))
+                info = info if isinstance(info, dict) else {}
+                if info.get("fork"):
+                    # A fork is not the project. Starring the copy supports nobody, and the work
+                    # that matters lands upstream, so keep it off the star list and report it.
+                    up = info.get("parent") or info.get("source") or {}
+                    forks.append((o, r, up.get("full_name") or "another repository",
+                                  (info.get("description") or "").strip()))
+                else:
+                    todo_star.append((o, r, (info.get("description") or "").strip()))
             else: bad.append((f"{o}/{r}", st))
             time.sleep(0.1)
     if not a.no_follow:
@@ -192,15 +200,25 @@ def main():
             elif st != 204: bad.append((u, st))
     print(f"\nStars:   {len(todo_star)} to add, {already} already starred")
     print(f"Follows: {len(todo_follow)} to add")
+    if forks:
+        print(f"Forks:   {len(forks)} skipped (listed below)")
     if orgs: print("Organizations (cannot be followed):", ", ".join(orgs))
     for t, s in bad: print(f"  check failed: {t} (HTTP {s})")
     for o, r, desc in todo_star:
         print(f"  star   {o}/{r}\n         {desc or '(no description)'}\n         https://github.com/{o}/{r}")
     for u in todo_follow: print(f"  follow {u}")
+    if forks:
+        print(f"\nSkipped {len(forks)} fork{'s' if len(forks) != 1 else ''} of another project:"
+              " star the upstream instead")
+        for o, r, upstream, desc in forks:
+            print(f"  skip   {o}/{r}  (fork of {upstream})\n         https://github.com/{o}/{r}")
     if a.pick:
         want = {x.strip().lower() for x in a.pick.split(",") if x.strip()}
+        asked_for_forks = [f"{o}/{r}" for o, r, _u, _d in forks if f"{o}/{r}".lower() in want]
         todo_star = [t for t in todo_star if f"{t[0]}/{t[1]}".lower() in want]
         print(f"\nPicked {len(todo_star)} of the projects above.")
+        if asked_for_forks:
+            print("Not starred, fork of another project: " + ", ".join(asked_for_forks))
     if a.apply and a.review:
         chosen = []
         print("\nFor each project: y = star, n = not this one, o = open it in your browser first, q = stop here")
