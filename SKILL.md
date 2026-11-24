@@ -1,7 +1,7 @@
 ---
 name: hermesnet-catchup
 description: "Keep starring and following the HermesNet community list from your own GitHub account: preview, then apply."
-version: 1.4.0
+version: 1.5.0
 author: HermesNet
 license: MIT
 metadata:
@@ -46,18 +46,20 @@ The script lives in this skill's `scripts/` folder. On Windows the skill folder 
    ```bash
    python3 ~/.hermes/skills/hermesnet-catchup/scripts/catchup.py
    ```
-2. **Show the user** the counts and names exactly as printed. If the list says 0 and 0, say the user is
-   up to date and stop.
-3. **Ask** "Star and follow these?" The user may drop any repo or builder. Stars mean "I like this".
-4. **Apply** only after a yes, with the same flags plus `--apply`.
+2. **Show the user** each project as printed: its name, one-line description and link. If the list
+   says 0 and 0, say the user is up to date and stop.
+3. **Let them choose.** Stars mean "I looked at this and like it", so the user picks the projects they
+   want to star (encourage a quick look at each link). Never star the whole list without them choosing.
+4. **Apply** only the chosen ones, with `--pick`:
    ```bash
-   python3 ~/.hermes/skills/hermesnet-catchup/scripts/catchup.py --apply
+   python3 ~/.hermes/skills/hermesnet-catchup/scripts/catchup.py --apply --pick OWNER/REPO,OWNER/REPO
    ```
+   If the user is at a terminal themselves, `--apply --review` walks through each project one at a time
+   (y = star, n = skip, o = open it in the browser first, q = stop).
 5. **Report** in plain words what the script printed: how many ok, how many failed and why, where the log is.
    Never guess numbers.
 
-If the user dropped some items, use `--source` with a trimmed list, or run `--no-star` and
-`--no-follow` passes separately.
+Projects the user skipped come back in the next preview, so nothing is lost by saying "not now".
 
 ## Rules
 
@@ -73,11 +75,13 @@ If the user dropped some items, use `--source` with a trimmed list, or run `--no
 |---|---|
 | *(none)* | Preview new entries since the last applied run |
 | `--apply` | Actually star and follow |
+| `--pick A/B,C/D` | Star only these projects from the preview |
+| `--review` | With `--apply`: go through each project one at a time (needs a terminal) |
 | `--only all` | Look at the whole list, not just new entries |
 | `--no-star` / `--no-follow` | Only follow / only star |
 | `--source X` | Use a different list: a `builders.json` URL or file, a folder of `builders/*.yaml`, or any text with `github.com/OWNER/REPO` links (`-` = stdin) |
 | `--hermesforce [URL]` | Read members from a hermesforce site (repo list needs `--source` too) |
-| `--delay N` | Seconds between actions (default 4, minimum 2) |
+| `--delay N` | Seconds between actions (default 4, minimum 2, plus a little random time) |
 
 Where the list comes from when `--source` is not given, first that works:
 1. `HERMESNET_LIST` environment variable, if set (a path or URL)

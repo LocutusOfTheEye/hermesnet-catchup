@@ -13,7 +13,7 @@ Token: GITHUB_TOKEN or `gh auth token`; kept in memory, never printed.
 State: ~/.hermes/state/hermesnet-catchup/ (log.jsonl, seen.json). Default --only new skips repos
 already handled in an earlier --apply run.
 """
-import argparse, datetime, json, os, pathlib, re, subprocess, sys, time, urllib.error, urllib.request
+import argparse, datetime, json, os, pathlib, random, re, subprocess, sys, time, urllib.error, urllib.request
 
 API = "https://api.github.com"
 SITE = "https://hermesnet.xyz/builders.json"
@@ -107,9 +107,13 @@ def main():
     ap.add_argument("--only", choices=["new", "all"], default="new")
     ap.add_argument("--no-follow", action="store_true")
     ap.add_argument("--no-star", action="store_true")
-    ap.add_argument("--delay", type=float, default=4.0, help="seconds between actions (minimum 2)")
+    ap.add_argument("--review", action="store_true", help="go through each project one at a time and choose (needs a terminal)")
+    ap.add_argument("--pick", help="star only these repos: comma-separated OWNER/REPO list (from the preview)")
+    ap.add_argument("--delay", type=float, default=4.0, help="seconds between actions (minimum 2; a little random time is added)")
     a = ap.parse_args()
     a.delay = max(a.delay, 2.0)
+    if a.review and not sys.stdin.isatty():
+        sys.exit("--review needs a terminal you can type in. From an agent, show the preview and use --pick instead.")
 
     tok = token()
     st, hdr, me = call(tok, "GET", "/user")
@@ -173,7 +177,9 @@ def main():
         for o, r in stars:
             st, _, _ = call(tok, "GET", f"/user/starred/{o}/{r}")
             if st == 204: already += 1
-            elif st == 404: todo_star.append((o, r))
+            elif st == 404:
+                _, _, info = call(tok, "GET", f"/repos/{o}/{r}")
+                todo_star.append((o, r, ((info or {}).get("description") or "").strip()))
             else: bad.append((f"{o}/{r}", st))
             time.sleep(0.1)
     if not a.no_follow:
@@ -188,15 +194,33 @@ def main():
     print(f"Follows: {len(todo_follow)} to add")
     if orgs: print("Organizations (cannot be followed):", ", ".join(orgs))
     for t, s in bad: print(f"  check failed: {t} (HTTP {s})")
-    for o, r in todo_star: print(f"  star   {o}/{r}")
+    for o, r, desc in todo_star:
+        print(f"  star   {o}/{r}\n         {desc or '(no description)'}\n         https://github.com/{o}/{r}")
     for u in todo_follow: print(f"  follow {u}")
+    if a.pick:
+        want = {x.strip().lower() for x in a.pick.split(",") if x.strip()}
+        todo_star = [t for t in todo_star if f"{t[0]}/{t[1]}".lower() in want]
+        print(f"\nPicked {len(todo_star)} of the projects above.")
+    if a.apply and a.review:
+        chosen = []
+        print("\nFor each project: y = star, n = not this one, o = open it in your browser first, q = stop here")
+        for i, (o, r, desc) in enumerate(todo_star, 1):
+            print(f"\n[{i}/{len(todo_star)}] {o}/{r}\n  {desc or '(no description)'}\n  https://github.com/{o}/{r}")
+            while True:
+                ans = input("  star it? [y/n/o/q] ").strip().lower()
+                if ans == "o":
+                    import webbrowser; webbrowser.open(f"https://github.com/{o}/{r}"); continue
+                if ans in ("y", "n", "q"): break
+            if ans == "q": break
+            if ans == "y": chosen.append((o, r, desc))
+        todo_star = chosen
     if not a.apply:
         print("\nDry-run only. Re-run with --apply after the user approves this list.")
         return
 
     fails = set()
     with log_file.open("a") as log:
-        for kind, items in (("follow", todo_follow), ("star", [f"{o}/{r}" for o, r in todo_star])):
+        for kind, items in (("follow", todo_follow), ("star", [f"{o}/{r}" for o, r, _ in todo_star])):
             for it in items:
                 st, _, _ = call(tok, "PUT", f"/user/following/{it}" if kind == "follow" else f"/user/starred/{it}")
                 ok = st == 204
@@ -205,8 +229,9 @@ def main():
                                       "kind": kind, "target": it, "status": st}) + "\n")
                 log.flush()
                 print(f"  {kind} {it}: {'ok' if ok else 'FAILED ' + str(st)}", flush=True)
-                time.sleep(a.delay)
-    handled = {f"{o}/{r}".lower() for o, r in keep} - {f.lower() for f in fails}
+                time.sleep(a.delay + random.uniform(0, a.delay))
+    # Only what was actually acted on counts as handled, so skipped projects come back next time.
+    handled = {f"{o}/{r}".lower() for o, r, _ in todo_star} - {f.lower() for f in fails}
     seen_file.write_text(json.dumps(sorted(seen | handled)))
     print(f"\nDone: {len(todo_star) + len(todo_follow) - len(fails)} ok, {len(fails)} failed. Log: {log_file}")
     sys.exit(1 if fails else 0)
