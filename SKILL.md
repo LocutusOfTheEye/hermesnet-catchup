@@ -1,7 +1,7 @@
 ---
 name: hermesnet-catchup
 description: "Keep starring and following the HermesNet community list from your own GitHub account: preview, then apply."
-version: 1.5.1
+version: 1.5.2
 author: HermesNet
 license: MIT
 metadata:
@@ -92,6 +92,10 @@ Where the list comes from when `--source` is not given, first that works:
 ## Built-in safety
 
 - Only repos owned by a listed builder are used, so a list cannot slip in someone else's repo.
+- Leaves out forks. A listed repo that is a fork of another project is never starred: the upstream
+  project is the one to support, and starring the builder's copy helps nobody. Forks are shown in
+  the preview under their own heading with the repository they came from, and `--pick` will not
+  star one.
 - Skips the user's own repos, organizations, and anything already starred or followed.
 - Checks the token's permissions first. If `user:follow` is missing it skips follows and says how to
   fix it: `gh auth refresh -h github.com -s user:follow` (the user approves in the browser).
