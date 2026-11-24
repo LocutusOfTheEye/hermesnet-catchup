@@ -23,6 +23,7 @@ BUNDLED = str(pathlib.Path(__file__).resolve().parent.parent / "list.md")
 DEFAULT_SOURCES = [p for p in (os.environ.get("HERMESNET_LIST"), SITE, BUNDLED) if p]
 HERMESFORCE = "https://hermesforce.gottz.de/"
 STATE = pathlib.Path.home() / ".hermes" / "state" / "hermesnet-catchup"
+SEEN_FILE = STATE / "seen.json"
 OWNER_RE = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})"
 REPO_RE = re.compile(rf"github\.com/({OWNER_RE})/([A-Za-z0-9._-]+)")
 UA = {"User-Agent": "hermesnet-catchup"}
@@ -60,6 +61,27 @@ def call(tok, method, path, retries=3):
         except urllib.error.URLError as e:
             return 0, {}, str(e)
     return 0, {}, None
+
+
+def load_seen():
+    try:
+        return set(json.loads(SEEN_FILE.read_text()))
+    except (OSError, ValueError):
+        return set()
+
+
+def save_seen(entries):
+    """Record what this run handled.
+
+    The record on disk is read again here rather than trusted from the start of the run: a
+    second run (say a follow-only run started alongside this one) may have written in the
+    meantime, and merging into the copy we loaded at startup would silently drop its work.
+    The write is atomic so an interrupted run cannot leave the file truncated.
+    """
+    merged = load_seen() | {str(e).lower() for e in entries}
+    tmp = SEEN_FILE.with_name(f"{SEEN_FILE.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(sorted(merged)))
+    os.replace(tmp, SEEN_FILE)
 
 
 def fetch(src):
@@ -166,8 +188,8 @@ def main():
     stars = [(o, r) for o, r in keep if o.lower() != mine.lower()]
 
     STATE.mkdir(parents=True, exist_ok=True)
-    seen_file, log_file = STATE / "seen.json", STATE / "log.jsonl"
-    seen = set(json.loads(seen_file.read_text())) if seen_file.exists() else set()
+    log_file = STATE / "log.jsonl"
+    seen = load_seen()
     if a.only == "new":
         stars = [x for x in stars if f"{x[0]}/{x[1]}".lower() not in seen]
     print(f"Builders: {len(members)} ({len(members) - len(others)} is you). Repos: {len(keep)} listed, {len(stars)} to check")
@@ -232,7 +254,8 @@ def main():
                 time.sleep(a.delay + random.uniform(0, a.delay))
     # Only what was actually acted on counts as handled, so skipped projects come back next time.
     handled = {f"{o}/{r}".lower() for o, r, _ in todo_star} - {f.lower() for f in fails}
-    seen_file.write_text(json.dumps(sorted(seen | handled)))
+    if handled:
+        save_seen(handled)
     print(f"\nDone: {len(todo_star) + len(todo_follow) - len(fails)} ok, {len(fails)} failed. Log: {log_file}")
     sys.exit(1 if fails else 0)
 

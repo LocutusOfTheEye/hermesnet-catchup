@@ -1,7 +1,7 @@
 ---
 name: hermesnet-catchup
 description: "Keep starring and following the HermesNet community list from your own GitHub account: preview, then apply."
-version: 1.5.0
+version: 1.5.1
 author: HermesNet
 license: MIT
 metadata:
